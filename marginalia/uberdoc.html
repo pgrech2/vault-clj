@@ -2865,7 +2865,7 @@ net.brehaut.ClojureTools = (function (SH) {
     build_tree: build_tree
   };
 })(SyntaxHighlighter);
-</script><title>amperity/vault-clj -- Marginalia</title></head><body><table><tr><td class="docs"><div class="header"><h1 class="project-name"><a href="https://github.com/amperity/vault-clj">amperity/vault-clj</a></h1><h2 class="project-version">0.5.0</h2><br /><p>Clojure client for the Vault secret management system.</p>
+</script><title>amperity/vault-clj -- Marginalia</title></head><body><table><tr><td class="docs"><div class="header"><h1 class="project-name"><a href="https://github.com/amperity/vault-clj">amperity/vault-clj</a></h1><h2 class="project-version">0.5.1</h2><br /><p>Clojure client for the Vault secret management system.</p>
 </div><div class="dependencies"><h3>dependencies</h3><table><tr><td class="dep-name">org.clojure/clojure</td><td class="dotted"><hr /></td><td class="dep-version">1.8.0</td></tr><tr><td class="dep-name">org.clojure/tools.logging</td><td class="dotted"><hr /></td><td class="dep-version">0.3.1</td></tr><tr><td class="dep-name">amperity/envoy</td><td class="dotted"><hr /></td><td class="dep-version">0.3.1</td></tr><tr><td class="dep-name">cheshire</td><td class="dotted"><hr /></td><td class="dep-version">5.7.1</td></tr><tr><td class="dep-name">clj-http</td><td class="dotted"><hr /></td><td class="dep-version">2.3.0</td></tr><tr><td class="dep-name">com.stuartsierra/component</td><td class="dotted"><hr /></td><td class="dep-version">0.3.2</td></tr></table></div></td><td class="codes" style="text-align: center; vertical-align: middle;color: #666;padding-right:20px"><br /><br /><br />(this space intentionally left almost blank)</td></tr><tr><td class="docs"><div class="toc"><a name="toc"><h3>namespaces</h3></a><ul><li><a href="#vault.client.http">vault.client.http</a></li><li><a href="#vault.client.mock">vault.client.mock</a></li><li><a href="#vault.core">vault.core</a></li><li><a href="#vault.env">vault.env</a></li><li><a href="#vault.lease">vault.lease</a></li><li><a href="#vault.timer">vault.timer</a></li></ul></div></td><td class="codes">&nbsp;</td></tr><tr><td class="docs"><div class="docs-header"><a class="anchor" href="#vault.client.http" name="vault.client.http"><h1 class="project-name">vault.client.http</h1><a class="toc-link" href="#toc">toc</a></a></div></td><td class="codes" /></tr><tr><td class="docs">
 </td><td class="codes"><pre class="brush: clojure">(ns vault.client.http
   (:require
@@ -3001,6 +3001,20 @@ net.brehaut.ClojureTools = (function (SH) {
           {:form-params {:app_id app, :user_id user}
            :content-type :json
            :accept :json
+           :as :json})))))</pre></td></tr><tr><td class="docs"><p>Updates the token ref by making a request to authenticate with a username
+  and password, to be authenticated against an LDAP backend.</p>
+</td><td class="codes"><pre class="brush: clojure">(defn- authenticate-ldap!
+  [client credentials]
+  (let [{:keys [username password]} credentials]
+    (api-auth!
+      (str &quot;LDAP user &quot; username)
+      (:auth client)
+      (do-api-request :post (str (:api-url client) &quot;/v1/auth/ldap/login/&quot; username)
+        (merge
+          (:http-opts client)
+          {:form-params {:password password}
+           :content-type :json
+           :accept :json
            :as :json})))))</pre></td></tr><tr><td class="docs"><h2>Timer Logic</h2>
 </td><td class="codes"></td></tr><tr><td class="docs"><p>Attempts to renew the given secret lease. Updates the lease store or catches
   and logs any exception.</p>
@@ -3099,6 +3113,7 @@ Thread which periodically checks and renews leased secrets.</li>
       :token (authenticate-token! this credentials)
       :app-id (authenticate-app! this credentials)
       :userpass (authenticate-userpass! this credentials)
+      :ldap (authenticate-ldap! this credentials)
       ; Unknown type
       (throw (ex-info (str &quot;Unsupported auth-type &quot; (pr-str auth-type))
                       {:auth-type auth-type})))
@@ -3490,6 +3505,7 @@ Whether to revoke all outstanding leases when the client stops.</li>
     credentials. Possible arguments:
     - `:token \&quot;...\&quot;`
     - `:userpass {:username \&quot;user\&quot;, :password \&quot;hunter2\&quot;}`
+    - `:ldap {:username \&quot;LDAP username\&quot;, :password \&quot;hunter2\&quot;}`
     - `:app-id {:app \&quot;foo-service-dev\&quot;, :user \&quot;...\&quot;}`&quot;)
   (status
     [client]
