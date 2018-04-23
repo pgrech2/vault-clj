@@ -2865,7 +2865,7 @@ net.brehaut.ClojureTools = (function (SH) {
     build_tree: build_tree
   };
 })(SyntaxHighlighter);
-</script><title>amperity/vault-clj -- Marginalia</title></head><body><table><tr><td class="docs"><div class="header"><h1 class="project-name"><a href="https://github.com/amperity/vault-clj">amperity/vault-clj</a></h1><h2 class="project-version">0.5.1</h2><br /><p>Clojure client for the Vault secret management system.</p>
+</script><title>amperity/vault-clj -- Marginalia</title></head><body><table><tr><td class="docs"><div class="header"><h1 class="project-name"><a href="https://github.com/amperity/vault-clj">amperity/vault-clj</a></h1><h2 class="project-version">0.6.0</h2><br /><p>Clojure client for the Vault secret management system.</p>
 </div><div class="dependencies"><h3>dependencies</h3><table><tr><td class="dep-name">org.clojure/clojure</td><td class="dotted"><hr /></td><td class="dep-version">1.8.0</td></tr><tr><td class="dep-name">org.clojure/tools.logging</td><td class="dotted"><hr /></td><td class="dep-version">0.3.1</td></tr><tr><td class="dep-name">amperity/envoy</td><td class="dotted"><hr /></td><td class="dep-version">0.3.1</td></tr><tr><td class="dep-name">cheshire</td><td class="dotted"><hr /></td><td class="dep-version">5.7.1</td></tr><tr><td class="dep-name">clj-http</td><td class="dotted"><hr /></td><td class="dep-version">2.3.0</td></tr><tr><td class="dep-name">com.stuartsierra/component</td><td class="dotted"><hr /></td><td class="dep-version">0.3.2</td></tr></table></div></td><td class="codes" style="text-align: center; vertical-align: middle;color: #666;padding-right:20px"><br /><br /><br />(this space intentionally left almost blank)</td></tr><tr><td class="docs"><div class="toc"><a name="toc"><h3>namespaces</h3></a><ul><li><a href="#vault.client.http">vault.client.http</a></li><li><a href="#vault.client.mock">vault.client.mock</a></li><li><a href="#vault.core">vault.core</a></li><li><a href="#vault.env">vault.env</a></li><li><a href="#vault.lease">vault.lease</a></li><li><a href="#vault.timer">vault.timer</a></li></ul></div></td><td class="codes">&nbsp;</td></tr><tr><td class="docs"><div class="docs-header"><a class="anchor" href="#vault.client.http" name="vault.client.http"><h1 class="project-name">vault.client.http</h1><a class="toc-link" href="#toc">toc</a></a></div></td><td class="codes" /></tr><tr><td class="docs">
 </td><td class="codes"><pre class="brush: clojure">(ns vault.client.http
   (:require
@@ -3001,6 +3001,20 @@ net.brehaut.ClojureTools = (function (SH) {
           {:form-params {:app_id app, :user_id user}
            :content-type :json
            :accept :json
+           :as :json})))))</pre></td></tr><tr><td class="docs"><p>Updates the token ref by making a request to authenticate with an role-id and
+  secret-id.</p>
+</td><td class="codes"><pre class="brush: clojure">(defn- authenticate-app-role!
+  [client credentials]
+  (let [{:keys [role-id secret-id]} credentials]
+    (api-auth!
+      (str &quot;role-id &quot; role-id)
+      (:auth client)
+      (do-api-request :post (str (:api-url client) &quot;/v1/auth/approle/login&quot;)
+        (merge
+          (:http-opts client)
+          {:form-params {:role_id role-id, :secret_id secret-id}
+           :content-type :json
+           :accept :json
            :as :json})))))</pre></td></tr><tr><td class="docs"><p>Updates the token ref by making a request to authenticate with a username
   and password, to be authenticated against an LDAP backend.</p>
 </td><td class="codes"><pre class="brush: clojure">(defn- authenticate-ldap!
@@ -3013,6 +3027,25 @@ net.brehaut.ClojureTools = (function (SH) {
         (merge
           (:http-opts client)
           {:form-params {:password password}
+           :content-type :json
+           :accept :json
+           :as :json})))))</pre></td></tr><tr><td class="docs"><p>Updates the token ref by authenticating via the kubernetes authentication
+  backend using a JWT.</p>
+</td><td class="codes"><pre class="brush: clojure">(defn- authenticate-k8s!
+  [client credentials]
+  (let [{:keys [api-path jwt role]} credentials
+        api-path (or api-path &quot;/v1/auth/kubernetes/login&quot;)]
+    (when-not jwt
+      (throw (IllegalArgumentException. &quot;Kubernetes auth credentials must include :jwt&quot;)))
+    (when-not role
+      (throw (IllegalArgumentException. &quot;Kubernetes auth credentials must include :role&quot;)))
+    (api-auth!
+      (str &quot;Kubernetes auth role=&quot; role)
+      (:auth client)
+      (do-api-request :post (str (:api-url client) api-path)
+        (merge
+          (:http-opts client)
+          {:form-params {:jwt jwt :role role}
            :content-type :json
            :accept :json
            :as :json})))))</pre></td></tr><tr><td class="docs"><h2>Timer Logic</h2>
@@ -3112,8 +3145,10 @@ Thread which periodically checks and renews leased secrets.</li>
     (case auth-type
       :token (authenticate-token! this credentials)
       :app-id (authenticate-app! this credentials)
+      :app-role (authenticate-app-role! this credentials)
       :userpass (authenticate-userpass! this credentials)
       :ldap (authenticate-ldap! this credentials)
+      :k8s (authenticate-k8s! this credentials)
       ; Unknown type
       (throw (ex-info (str &quot;Unsupported auth-type &quot; (pr-str auth-type))
                       {:auth-type auth-type})))
@@ -3236,7 +3271,8 @@ Thread which periodically checks and renews leased secrets.</li>
     (.read-secret this path nil))
   (read-secret
     [this path opts]
-    (or (when-let [lease (lease/lookup leases path)]
+    (or (when-let [lease (and (not (:force-read opts))
+                              (lease/lookup leases path))]
           (when-not (lease/expired? lease)
             (:data lease)))
         (try
@@ -3262,7 +3298,10 @@ Thread which periodically checks and renews leased secrets.</li>
                       :content-type :json})]
       (log/debug &quot;Wrote secret&quot; path)
       (lease/remove-path! leases path)
-      (= 204 (:status response))))
+      (case  (:status response)
+        204 true
+        200 (:body response)
+        false)))
   (delete-secret!
     [this path]
     (let [response (api-request this :delete path {})]
@@ -3506,7 +3545,9 @@ Whether to revoke all outstanding leases when the client stops.</li>
     - `:token \&quot;...\&quot;`
     - `:userpass {:username \&quot;user\&quot;, :password \&quot;hunter2\&quot;}`
     - `:ldap {:username \&quot;LDAP username\&quot;, :password \&quot;hunter2\&quot;}`
-    - `:app-id {:app \&quot;foo-service-dev\&quot;, :user \&quot;...\&quot;}`&quot;)
+    - `:k8s {:jwt \&quot;...\&quot;, :role \&quot;...\&quot;}`
+    - `:app-id {:app \&quot;foo-service-dev\&quot;, :user \&quot;...\&quot;}`
+    - `:app-role {:role-id \&quot;...\&quot;, :secret-id \&quot;...\&quot;}&quot;)
   (status
     [client]
     &quot;Returns the health status of the Vault server.&quot;))</pre></td></tr><tr><td class="docs"><p>Token management interface supported by the "token" auth backend.</p>
@@ -3608,7 +3649,9 @@ Whether to revoke all outstanding leases when the client stops.</li>
       Whether or not to renew this secret when the lease is near expiry.
     - `:rotate`
       Whether or not to rotate this secret when the lease is near expiry and
-      cannot be renewed.&quot;)
+      cannot be renewed.
+    - `:force-read`
+      Force the secret to be read from the server even if there is a valid lease cached.&quot;)
   (write-secret!
     [client path data]
     &quot;Writes secret data to a path. `data` should be a map. Returns a
